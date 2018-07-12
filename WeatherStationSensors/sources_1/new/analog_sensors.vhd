@@ -32,8 +32,8 @@ entity analog_sensors is
         vauxn0 : IN STD_LOGIC;
         vauxp1 : IN STD_LOGIC;
         vauxn1 : IN STD_LOGIC;
+        pin_select : IN STD_LOGIC;
         
-        sw : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
         led : BUFFER STD_LOGIC_VECTOR(5 DOWNTO 0)
       );
 end analog_sensors;
@@ -114,22 +114,42 @@ RD_DATA : process(CLK100MHZ)
 begin
     if rising_edge(CLK100MHZ) then
         if ready_rising = '1' then
-            case data(15 DOWNTO 13) is
-            when "010" =>
-                led <= "000001";
-            when "011" =>
-                led <= "000011";
-            when "100" =>
-                led <= "000111";
-            when "101" =>
-                led <= "001111";
-            when "110" =>
-                led <= "011111";
-            when "111" =>
-                led <= "111111";
-            when others =>
-                led <= "000000"; 
-            end case;
+        
+            if pin_select = '0' then    -- if we read a photocell, use only the upper bits
+                case data(15 DOWNTO 13) is
+                when "010" =>
+                    led <= "000001";
+                when "011" =>
+                    led <= "000011";
+                when "100" =>
+                    led <= "000111";
+                when "101" =>
+                    led <= "001111";
+                when "110" =>
+                    led <= "011111";
+                when "111" =>
+                    led <= "111111";
+                when others =>
+                    led <= "000000"; 
+                end case;
+            else                        -- if we read a temperature sensor, use lower bits due to lower deviation
+                case data(12 DOWNTO 10) is
+                when "010" =>
+                    led <= "000001";
+                when "011" =>
+                    led <= "000011";
+                when "100" =>
+                    led <= "000111";
+                when "101" =>
+                    led <= "001111";
+                when "110" =>
+                    led <= "011111";
+                when "111" =>
+                    led <= "111111";
+                when others =>
+                    led <= "000000"; 
+                end case;
+            end if;
         else
             led <= led;
         end if;
@@ -140,14 +160,11 @@ LD_ADDR : process(CLK100MHZ)
 begin
     if rising_edge(CLK100MHZ) then
         if ready_rising = '1' then
-            case sw is
-            when "0000" =>
+            if pin_select = '0' then
                 address_in <= a0_address;
-            when "0001" =>
+            else
                 address_in <= a1_address;
-            when others =>
-                address_in <= a0_address;
-            end case;
+            end if;
         else
             address_in <= address_in;
         end if;

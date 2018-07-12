@@ -1,16 +1,16 @@
 ----------------------------------------------------------------------------------
 -- Company: 
--- Engineer: 
+-- Engineer: Christopher Ringhofer
 -- 
 -- Create Date: 11.07.2018 22:25:12
 -- Design Name: 
 -- Module Name: analog_sensors - Behavioral
--- Project Name: 
--- Target Devices: 
+-- Project Name: FPGA Weather Station
+-- Target Devices: Digilent Arty S7-50 (Xilinx Spartan-7)
 -- Tool Versions: 
--- Description: 
+-- Description: Reads out sensor values from A0 and A1 via XADC.
 -- 
--- Dependencies: 
+-- Dependencies: xadc_wiz_0
 -- 
 -- Revision:
 -- Revision 0.01 - File Created
@@ -25,16 +25,15 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity analog_sensors is
     PORT (
-        CLK100MHZ : IN STD_LOGIC;
-        vp : IN STD_LOGIC;
+        CLK100MHZ : IN STD_LOGIC;                       -- system clock
+        vp : IN STD_LOGIC;                              -- dedicated analog input (not used)
         vn : IN STD_LOGIC;
-        vauxp0 : IN STD_LOGIC;
+        vauxp0 : IN STD_LOGIC;                          -- auxiliary input 0 (A0)
         vauxn0 : IN STD_LOGIC;
-        vauxp1 : IN STD_LOGIC;
+        vauxp1 : IN STD_LOGIC;                          -- auxiliary input 1 (A1)
         vauxn1 : IN STD_LOGIC;
-        pin_select : IN STD_LOGIC;
-        
-        led : BUFFER STD_LOGIC_VECTOR(5 DOWNTO 0)
+        pin_select : IN STD_LOGIC;                      -- toggles between inputs, '0' for A0 and '1' for A1
+        data_out : BUFFER STD_LOGIC_VECTOR(11 DOWNTO 0) -- 12-bit ADC data output corresponding to pin_select
       );
 end analog_sensors;
 
@@ -64,16 +63,16 @@ COMPONENT xadc_wiz_0
   );
 END COMPONENT;
 
-SIGNAL enable : STD_LOGIC;
-SIGNAL ready : STD_LOGIC;
+SIGNAL enable : STD_LOGIC;                          -- connects end-of-conversion with DRP enable
+SIGNAL ready : STD_LOGIC;                           -- signals for detecting data ready rising edge
 SIGNAL ready_d1 : STD_LOGIC;
 SIGNAL ready_rising : STD_LOGIC;
 SIGNAL ready_falling : STD_LOGIC;
-SIGNAL data : STD_LOGIC_VECTOR(15 DOWNTO 0);
-SIGNAL address_in : STD_LOGIC_VECTOR(6 DOWNTO 0);
+SIGNAL data : STD_LOGIC_VECTOR(15 DOWNTO 0);        -- ADC value is 12-bits (MSB justified)
+SIGNAL address_in : STD_LOGIC_VECTOR(6 DOWNTO 0);   -- register read address for XADC
 
-CONSTANT a0_address : STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010000";
-CONSTANT a1_address : STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010001";
+CONSTANT a0_address : STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010000";    -- addresses register for A0
+CONSTANT a1_address : STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010001";    -- addresses register for A1
 
 begin
 
@@ -114,44 +113,9 @@ RD_DATA : process(CLK100MHZ)
 begin
     if rising_edge(CLK100MHZ) then
         if ready_rising = '1' then
-        
-            if pin_select = '0' then    -- if we read a photocell, use only the upper bits
-                case data(15 DOWNTO 13) is
-                when "010" =>
-                    led <= "000001";
-                when "011" =>
-                    led <= "000011";
-                when "100" =>
-                    led <= "000111";
-                when "101" =>
-                    led <= "001111";
-                when "110" =>
-                    led <= "011111";
-                when "111" =>
-                    led <= "111111";
-                when others =>
-                    led <= "000000"; 
-                end case;
-            else                        -- if we read a temperature sensor, use lower bits due to lower deviation
-                case data(12 DOWNTO 10) is
-                when "010" =>
-                    led <= "000001";
-                when "011" =>
-                    led <= "000011";
-                when "100" =>
-                    led <= "000111";
-                when "101" =>
-                    led <= "001111";
-                when "110" =>
-                    led <= "011111";
-                when "111" =>
-                    led <= "111111";
-                when others =>
-                    led <= "000000"; 
-                end case;
-            end if;
+            data_out <= data(15 DOWNTO 4);
         else
-            led <= led;
+            data_out <= data_out;
         end if;
     end if;
 end process RD_DATA;

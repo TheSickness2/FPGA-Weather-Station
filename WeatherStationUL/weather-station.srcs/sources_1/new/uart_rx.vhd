@@ -69,7 +69,7 @@ begin
     end process SAMPLE;
 
     -- receive state machine
-	UART_RX : process(reset_n, clk)
+	UART_RX : process(reset_n, clk, clk_en)
 	
         variable rx_count :	integer range 0 to d_width-1 := 0;   -- count the bits received
         variable os_count :	integer range 0 to os_rate-1 := 0;   -- count the oversampling rate pulses

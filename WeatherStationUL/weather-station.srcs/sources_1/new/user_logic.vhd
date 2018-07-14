@@ -26,8 +26,8 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity user_logic is
     port(
-        CLK100MHZ : in std_logic;   -- system clock
-        
+        CLK100MHZ : in std_logic;   -- System clock
+                
         vp : in std_logic;  -- Dedicated analog input (not used)
         vn : in std_logic;
         vauxp0 : in std_logic;  -- Auxiliary input 0 (A0), connected to photocell
@@ -103,10 +103,23 @@ component sseg_arty_2dig is
     );
 end component;
 
+component temp_conversion is
+    port(
+        adc_tempval : in std_logic_vector(11 downto 0);
+        temp_celsius : out std_logic_vector(5 downto 0);
+        temp_tenths_celsius : out std_logic_vector(11 downto 0);
+        temp_tenths : out std_logic_vector(3 downto 0);
+        temp_ones : out std_logic_vector(3 downto 0);
+        temp_tens : out std_logic_vector(3 downto 0);
+        temp_hundreds : out std_logic_vector(3 downto 0)
+    );
+end component;
+
+
 -- PWM output and duty cycle register
 signal pwm_out : std_logic;
 signal dcval_reg : unsigned(5 downto 0):= (others => '0');
-signal dcval_next : unsigned(5 downto 0);
+signal dcval_next : unsigned(5 downto 0);   -- TODO: still needs to be driven!
 
 -- UART configuration
 constant CLK_RATE   : integer   := 100_000_000;
@@ -134,6 +147,10 @@ signal pin_sel_next : std_logic := '0';
 signal sensor_value_next : std_logic_vector(11 downto 0);
 signal last_temperature : std_logic_vector(11 downto 0);    -- holds the last temperature measurement
 signal last_brightness : std_logic_vector(11 downto 0);     -- holds the last brightness measurement
+
+-- Sensor values for visualization
+signal temp_celsius : std_logic_vector(5 downto 0);
+signal brightness : std_logic_vector(5 downto 0);
 
 begin
 
@@ -183,7 +200,7 @@ port map(
 disp1 : sseg_arty_2dig
 port map(
     clk100 => CLK100MHZ,
-    binval => std_logic_vector(dcval_reg),  -- TODO: put temperature value here! (e.g. mapping of last_temperature)
+    binval => brightness,
     seg => seg1,
     cat => cat1
 );
@@ -191,10 +208,24 @@ port map(
 disp2 : sseg_arty_2dig
 port map(
     clk100 => CLK100MHZ,
-    binval => std_logic_vector(dcval_reg),  -- TODO: put brightness value here! (e.g. mapping of last_brightness)
+    binval => temp_celsius,
     seg => seg2,
     cat => cat2
 );
+
+temp_conv : temp_conversion 
+port map(
+    adc_tempval => last_temperature,
+    temp_celsius => temp_celsius,
+    temp_tenths_celsius => open,
+    temp_tenths => open,
+    temp_ones => open,
+    temp_tens => open,
+    temp_hundreds => open
+);
+
+brightness <= last_brightness(11 downto 6); -- easy conversion
+dcval_next <= unsigned(brightness);         -- TODO: just for testing purposes, put temperature representation here later!
 
 upd_proc : process(CLK100MHZ)   -- update working registers
 begin
@@ -206,9 +237,6 @@ begin
     end if;
 end process upd_proc;
 
--- TODO: After pin_sel has changed, e.g. is '0', the new measurement
--- *may* not be there already, i.e. last_brightness would actually still
--- show the value read out of the temperature sensor!
 fetch_measureval_proc : process(CLK100MHZ)   -- fetch sensor measurements
 begin
     if rising_edge(CLK100MHZ) then
@@ -221,5 +249,19 @@ begin
         end if;
     end if;
 end process fetch_measureval_proc;
+
+upd_pin : process(CLK100MHZ)
+    variable counter : integer range 0 to (CLK_RATE / 4) := 0;  -- 0.25 seconds
+begin
+    if rising_edge(CLK100MHZ) then
+        if counter < (CLK_RATE / 4) then
+            counter := counter + 1;
+            pin_sel_next <= pin_sel_next;
+        else
+            counter := 0;
+            pin_sel_next <= not (pin_sel_next);
+        end if;
+    end if;
+end process upd_pin;
 
 end Behavioral;

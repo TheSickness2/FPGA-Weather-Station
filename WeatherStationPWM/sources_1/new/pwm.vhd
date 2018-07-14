@@ -5,7 +5,7 @@ use IEEE.NUMERIC_STD.ALL;
 entity pwm is
     port ( 
         clk : in std_logic;
-        dc : in std_logic_vector(5 downto 0);   --define duty cycle
+        dc : in std_logic_vector(15 downto 0);   --define duty cycle
         pwm : out std_logic
     );
 end pwm;
@@ -14,8 +14,8 @@ architecture impl of pwm is
     signal pwm_reg : std_logic := '0';
     signal pwm_next : std_logic;
     
-    signal cntr_reg : unsigned(7 downto 0) := X"00";   
-    signal cntr_next : unsigned(7 downto 0);
+    signal cntr_reg : unsigned(16 downto 0) := "00000000000000000";   
+    signal cntr_next : unsigned(16 downto 0);
     
 begin
     process(clk)
@@ -27,7 +27,8 @@ begin
     end process;
     
     cntr_next <= cntr_reg +1;
-    pwm_next <= '1' when ((cntr_reg(7) = '0') and (cntr_reg(6 downto 1) < unsigned(dc))) else '0'; --duty cycle = 50%, half of counter reg 
-    pwm <= pwm_reg;
+    --pwm_next <= '1' when ((cntr_reg(7) = '0') and (cntr_reg(6 downto 1) < unsigned(dc))) else '0'; --duty cycle = 50%, half of counter reg 
+    pwm_next <= '1' when (cntr_reg(16 downto 1) < unsigned(dc)) else '0';
+    pwm <= not pwm_reg;
 
 end impl;

@@ -27,7 +27,8 @@ entity pwm_vardisp3_arty is
     port ( 
         clk100mhz : in std_logic;
         btn : in std_logic_vector(1 downto 0);
-        led : out std_logic_vector(1 downto 0);
+        led_out : out std_logic;
+        fan_out : out std_logic;
         seg : out std_logic_vector(6 downto 0);
         cat : out std_logic
     );
@@ -37,7 +38,7 @@ architecture impl of pwm_vardisp3_arty is
 component pwm is
     port(
         clk : in std_logic;
-        dc : in std_logic_vector(5 downto 0);
+        dc : in std_logic_vector(15 downto 0);
         pwm : out std_logic
     );
 end component;
@@ -50,6 +51,18 @@ component sseg_arty_2dig is
         cat : out std_logic
     );
 end component;
+
+component debouncer is
+    generic(
+        num_cons_cycles : integer := 2000;
+        cntr_size : integer := 11    
+    );
+    port(
+        clk : in std_logic;
+        data_in : in std_logic;
+        data_deb : out std_logic
+    );
+ end component;
 
 type dc_state_type is (idle, inc, dec);
 signal dc_state_reg : dc_state_type := idle;
@@ -67,31 +80,64 @@ signal ta_plus_pulse : std_logic := '0';
 signal ta_minus_pulse : std_logic := '0';
 
 
-signal dcval_reg : unsigned(5 downto 0):= (others => '0');
-signal dcval_next : unsigned(5 downto 0);
+signal dcval_reg : unsigned(15 downto 0):= (others => '0');
+signal dcval_next : unsigned(15 downto 0);
 
 
 signal ta_plus : std_logic;
 signal ta_minus : std_logic;
 
+signal btn1_deb : std_logic; --debouced data from debouncer 1
+signal btn2_deb : std_logic; --debounced data from debouncer2
 
 begin
  pwm0 : pwm
  port map(
     clk => clk100mhz,
     dc => std_logic_vector(dcval_reg),
-    pwm => led(1)
+    pwm => fan_out
+ );
+ 
+ pwm1 : pwm
+ port map(
+    clk => clk100mhz,
+    dc => std_logic_vector(dcval_reg),
+    pwm => led_out
  );
  
  disp : sseg_arty_2dig
  port map(
     clk100 => clk100mhz,
-    binval => std_logic_vector(dcval_reg),
+    binval => std_logic_vector(dcval_reg(15 downto 10)),
     seg => seg,
     cat => cat
  );
  
- led(0) <= '1';
+ --debouncing module 1
+ deb1 : debouncer
+ generic map(
+    num_cons_cycles => 2000,
+    cntr_size => 11
+ )
+ port map(
+    clk => clk100mhz,
+    data_in => btn(0),
+    data_deb => btn1_deb
+ );
+ 
+ --debouncing module 2
+ deb2 : debouncer
+ generic map(
+    num_cons_cycles => 2000,
+    cntr_size => 11
+ )
+ port map(
+    clk => clk100mhz,
+    data_in => btn(1),
+    data_deb => btn2_deb
+ );
+ 
+ --led(0) <= '1'; --set led0 constantly on (compare led for pwm)
  
  upd_proc : process(clk100mhz) --update process
  begin
@@ -117,10 +163,10 @@ begin
                 dc_state_next <= dec;
             end if;
         when inc =>
-            dcval_next <= dcval_reg +1;
+            dcval_next <= dcval_reg +6553;
             dc_state_next <= idle;
         when dec =>
-            dcval_next <= dcval_reg -1;
+            dcval_next <= dcval_reg -6553;
             dc_state_next <= idle;
     end case;
  end process state_proc; --state machine process
@@ -163,8 +209,9 @@ begin
             ta_minus_state_next <= released;
     end case;                
  end process; --press minus event process
-     
- ta_plus <= btn(0);
- ta_minus <= btn(1);
-
+ 
+ --shift debounced button clicks to operation registers    
+ ta_plus <= btn1_deb; 
+ ta_minus <= btn2_deb;
+ 
 end impl;

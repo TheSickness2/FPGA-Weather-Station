@@ -41,10 +41,13 @@ entity user_logic is
         seg1 : out std_logic_vector(6 downto 0); -- Seven-segment display on PMOD headers JA/JB
         cat1 : out std_logic;
         seg2 : out std_logic_vector(6 downto 0); -- Seven-segment display on PMOD headers JC/JD
-        cat2 : out std_logic
+        cat2 : out std_logic;
+        
+        pwm_fan : out std_logic
+       -- pwm_cntrl : out std_logic --to delete
+        
     );
 end user_logic;
-
 
 architecture Behavioral of user_logic is
 
@@ -118,8 +121,11 @@ end component;
 
 -- PWM output and duty cycle register
 signal pwm_out : std_logic;
-signal dcval_reg : unsigned(5 downto 0):= (others => '0');
+signal dcval_reg : unsigned(5 downto 0):= (others => '0'); --"111111";
 signal dcval_next : unsigned(5 downto 0);   -- TODO: still needs to be driven!
+
+--signal pwm_cntrl_reg : std_logic := '0'; --to delete
+--signal pwm_cntrl_next :std_logic;        --to delete
 
 -- UART configuration
 constant CLK_RATE   : integer   := 100_000_000;
@@ -194,7 +200,8 @@ pwm0 : pwm
 port map(
     clk => CLK100MHZ,
     dc => std_logic_vector(dcval_reg),
-    pwm => pwm_out
+    --pwm => pwm_out; --if signal inverting is used
+    pwm => pwm_fan
 );
 
 disp1 : sseg_arty_2dig
@@ -225,7 +232,7 @@ port map(
 );
 
 brightness <= last_brightness(11 downto 6); -- easy conversion
-dcval_next <= unsigned(brightness);         -- TODO: just for testing purposes, put temperature representation here later!
+--dcval_next <= unsigned(temp_celsius);         -- TODO: just for testing purposes, put temperature representation here later!
 
 upd_proc : process(CLK100MHZ)   -- update working registers
 begin
@@ -233,7 +240,8 @@ begin
         pin_sel <= pin_sel_next;
         tx_en <= tx_en_next;
         tx_data <= tx_data_next;
-        dcval_reg <= dcval_next;
+        --dcval_reg <= dcval_next; --updated in setdc_proc
+        --pwm_cntrl_reg <= pwm_cntrl_next; --to delete
     end if;
 end process upd_proc;
 
@@ -263,5 +271,57 @@ begin
         end if;
     end if;
 end process upd_pin;
+
+--test_pwm : process(CLK100MHZ)  --to delete
+--    variable dc_cntr : integer range 0 to (CLK_RATE / 4) := 0;
+--begin
+--    if rising_edge(CLK100MHZ) then
+--        if dc_cntr < (CLK_RATE / 4) then
+--            dc_cntr := dc_cntr +1;
+--        else
+--            dc_cntr := 0;
+--            dcval_next <= dcval_reg +1;
+--        end if;
+--    end if;
+--end process test_pwm;
+
+--test_tmp : process(CLK100MHZ) --to delete
+--begin
+--    if rising_edge(CLK100MHZ) then
+--        if unsigned(temp_celsius) = 26 then
+--            pwm_cntrl_next <= '1';
+--        else 
+--            pwm_cntrl_next <= '0';
+--        end if;
+--    end if;
+--end process test_tmp;
+            
+--pwm_cntrl <= pwm_cntrl_reg; --to delete
+
+setdc_proc : process(temp_celsius) --set pwm duty cycle in order to temperature changes, 1 degree = 10% increase
+    variable deg : integer range 0 to 63 :=  to_integer(unsigned(temp_celsius));
+begin
+    dcval_next <= dcval_reg; --default
+        case deg is --temperature range within the pwm works
+            when 24 =>     --if temperature is 24°C
+                dcval_next <= "011111"; --set dc to 31 (~50%)
+            when 25 =>     --if temperature is 25°C
+                dcval_next <= "100101"; --set dc to 37 (~60%)
+            when 26 =>     --if temperature is 26°C
+                dcval_next <= "101011"; --set dc to 43(~70%)
+            when 27 =>     --if temperature is 27°C
+                dcval_next <= "110001"; --set dc to 49(~80%)
+            when 28 =>     --if temperature is 27°C
+                dcval_next <= "110111"; --set dc to 55(~90%)
+            when others =>
+               if deg < 24 then
+                   dcval_next <= "000000"; --below 24°C the fan is off
+               elsif deg > 29 then
+                   dcval_next <= "111111"; --above 29°C the fan is at full speed
+               end if;
+        end case;
+end process setdc_proc;
+
+--pwm_fan <= not pwm_out; --invert the output due to the motor circuit inverting character, otherwise the motor is at full speed when pwm is off
 
 end Behavioral;

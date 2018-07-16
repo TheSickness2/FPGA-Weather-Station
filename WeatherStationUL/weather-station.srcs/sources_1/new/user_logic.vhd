@@ -43,8 +43,8 @@ entity user_logic is
         seg2 : out std_logic_vector(6 downto 0); -- Seven-segment display on PMOD headers JC/JD
         cat2 : out std_logic;
         
-        pwm_fan : out std_logic
-       -- pwm_cntrl : out std_logic --to delete
+        pwm_fan : out std_logic;
+        pwm_led : out std_logic 
         
     );
 end user_logic;
@@ -121,11 +121,8 @@ end component;
 
 -- PWM output and duty cycle register
 signal pwm_out : std_logic;
-signal dcval_reg : unsigned(5 downto 0):= (others => '0'); --"111111";
-signal dcval_next : unsigned(5 downto 0);   -- TODO: still needs to be driven!
-
---signal pwm_cntrl_reg : std_logic := '0'; --to delete
---signal pwm_cntrl_next :std_logic;        --to delete
+signal dcval_reg : unsigned(5 downto 0):= (others => '0'); 
+signal dcval_next : unsigned(5 downto 0);  
 
 -- UART configuration
 constant CLK_RATE   : integer   := 100_000_000;
@@ -200,8 +197,7 @@ pwm0 : pwm
 port map(
     clk => CLK100MHZ,
     dc => std_logic_vector(dcval_reg),
-    --pwm => pwm_out; --if signal inverting is used
-    pwm => pwm_fan
+    pwm => pwm_out
 );
 
 disp1 : sseg_arty_2dig
@@ -240,8 +236,7 @@ begin
         pin_sel <= pin_sel_next;
         tx_en <= tx_en_next;
         tx_data <= tx_data_next;
-        --dcval_reg <= dcval_next; --updated in setdc_proc
-        --pwm_cntrl_reg <= pwm_cntrl_next; --to delete
+        dcval_reg <= dcval_next; 
     end if;
 end process upd_proc;
 
@@ -285,21 +280,8 @@ end process upd_pin;
 --    end if;
 --end process test_pwm;
 
---test_tmp : process(CLK100MHZ) --to delete
---begin
---    if rising_edge(CLK100MHZ) then
---        if unsigned(temp_celsius) = 26 then
---            pwm_cntrl_next <= '1';
---        else 
---            pwm_cntrl_next <= '0';
---        end if;
---    end if;
---end process test_tmp;
-            
---pwm_cntrl <= pwm_cntrl_reg; --to delete
-
 setdc_proc : process(temp_celsius) --set pwm duty cycle in order to temperature changes, 1 degree = 10% increase
-    variable deg : integer range 0 to 63 :=  to_integer(unsigned(temp_celsius));
+    variable deg : integer range 0 to 63 :=  to_integer(unsigned(temp_celsius)); --cast temperature value to allow math operations
 begin
     dcval_next <= dcval_reg; --default
         case deg is --temperature range within the pwm works
@@ -322,6 +304,7 @@ begin
         end case;
 end process setdc_proc;
 
---pwm_fan <= not pwm_out; --invert the output due to the motor circuit inverting character, otherwise the motor is at full speed when pwm is off
+pwm_fan <= pwm_out; --invert the output due to the motor circuit inverting character, otherwise the motor is at full speed when pwm is off
+pwm_led <= pwm_out; --control led for pwm output
 
 end Behavioral;

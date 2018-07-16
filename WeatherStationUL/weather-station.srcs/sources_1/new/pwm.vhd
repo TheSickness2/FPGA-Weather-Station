@@ -16,7 +16,7 @@ architecture impl of pwm is
     
     signal cntr_reg : unsigned(7 downto 0) := X"00";   
     signal cntr_next : unsigned(7 downto 0);
-    
+        
 begin
     process(clk)
     begin
@@ -27,7 +27,8 @@ begin
     end process;
     
     cntr_next <= cntr_reg +1;
-    pwm_next <= '1' when ((cntr_reg(7) = '0') and (cntr_reg(6 downto 1) < unsigned(dc))) else '0'; --duty cycle = 50%, half of counter reg 
+    --pwm_next <= '1' when ((cntr_reg(7) = '0') and (cntr_reg(6 downto 1) < unsigned(dc))) else '0'; --duty cycle = 50%, half of counter reg 
+    pwm_next <= '1' when (cntr_reg(7 downto 2) < unsigned(dc)) else '0'; --we need the full dc 
     pwm <= pwm_reg;
 
 end impl;

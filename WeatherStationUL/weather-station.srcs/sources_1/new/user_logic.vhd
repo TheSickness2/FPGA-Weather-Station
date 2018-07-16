@@ -378,21 +378,21 @@ setdc_proc : process(temp_celsius) --set pwm duty cycle in order to temperature 
 begin
     dcval_next <= dcval_reg; --default
         case deg is --temperature range within the pwm works
-            when 24 =>     --if temperature is 24°C
+            when 26 =>     --if temperature is 26 degrees
                 dcval_next <= "011111"; --set dc to 31 (~50%)
-            when 25 =>     --if temperature is 25°C
+            when 28 =>     --if temperature is 28 degrees
                 dcval_next <= "100101"; --set dc to 37 (~60%)
-            when 26 =>     --if temperature is 26°C
+            when 30 =>     --if temperature is 30 degrees
                 dcval_next <= "101011"; --set dc to 43(~70%)
-            when 27 =>     --if temperature is 27°C
+            when 32 =>     --if temperature is 32 degrees
                 dcval_next <= "110001"; --set dc to 49(~80%)
-            when 28 =>     --if temperature is 28°C
+            when 34 =>     --if temperature is 34 degrees
                 dcval_next <= "110111"; --set dc to 55(~90%)
             when others =>
-               if deg < 24 then
-                   dcval_next <= "000000"; --below 24°C the fan is off
-               elsif deg > 29 then
-                   dcval_next <= "111111"; --above 29°C the fan is at full speed
+               if deg < 26 then
+                   dcval_next <= "000000"; --below 26 degrees the fan is off
+               elsif deg > 34 then
+                   dcval_next <= "111111"; --above 34 degrees the fan is at full speed
                end if;
         end case;
 end process setdc_proc;
@@ -472,3 +472,4 @@ end process;
 tx <= tx_internal;
 
 end Behavioral;
+

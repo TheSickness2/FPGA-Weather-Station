@@ -1,16 +1,17 @@
 ----------------------------------------------------------------------------------
 -- Company: 
--- Engineer: 
+-- Engineer: Christopher Ringhofer, Nicolas Frick
 -- 
 -- Create Date: 13.07.2018 00:37:35
 -- Design Name: 
 -- Module Name: user_logic - Behavioral
--- Project Name: 
--- Target Devices: 
+-- Project Name: FPGA Weather Station
+-- Target Devices: Digilent Arty S7-50 (Xilinx Spartan-7)
 -- Tool Versions: 
--- Description: 
+-- Description: Implements the weather station user-logic.
 -- 
--- Dependencies: 
+-- Dependencies: analog_sensors, uart_rxtx, pwm, sseg_arty_2dig,
+--  temp_conversion, light_conversion
 -- 
 -- Revision:
 -- Revision 0.01 - File Created
@@ -41,7 +42,9 @@ entity user_logic is
         seg1 : out std_logic_vector(6 downto 0); -- Seven-segment display on PMOD headers JA/JB
         cat1 : out std_logic;
         seg2 : out std_logic_vector(6 downto 0); -- Seven-segment display on PMOD headers JC/JD
-        cat2 : out std_logic
+        cat2 : out std_logic;
+        
+        pwm_out : out std_logic -- PWM output
     );
 end user_logic;
 
@@ -108,38 +111,22 @@ component temp_conversion is
         adc_tempval : in std_logic_vector(11 downto 0);
         temp_celsius : out std_logic_vector(5 downto 0);
         temp_tenths_celsius : out std_logic_vector(11 downto 0);
-        temp_tenths : out std_logic_vector(3 downto 0);
-        temp_ones : out std_logic_vector(3 downto 0);
-        temp_tens : out std_logic_vector(3 downto 0);
-        temp_hundreds : out std_logic_vector(3 downto 0)
+        ascii_temp_tenths : out std_logic_vector(7 downto 0);
+        ascii_temp_ones : out std_logic_vector(7 downto 0);
+        ascii_temp_tens : out std_logic_vector(7 downto 0);
+        ascii_temp_hundreds : out std_logic_vector(7 downto 0)
     );
 end component;
 
+component light_conversion is
+    port(
+        adc_lightval : in std_logic_vector(11 downto 0);
+        brightness : out std_logic_vector(5 downto 0);
+        ascii_light_ones : out std_logic_vector(7 downto 0);
+        ascii_light_tens : out std_logic_vector(7 downto 0)
+    );
+end component;
 
--- PWM output and duty cycle register
-signal pwm_out : std_logic;
-signal dcval_reg : unsigned(5 downto 0):= (others => '0');
-signal dcval_next : unsigned(5 downto 0);   -- TODO: still needs to be driven!
-
--- UART configuration
-constant CLK_RATE   : integer   := 100_000_000;
-constant BAUD_RATE  : integer   := 9_600;
-constant OS_RATE    : integer   := 16;
-constant D_WIDTH    : integer   := 8;
-constant STOP_BITS  : integer   := 1;
-constant PARITY     : integer   := 0;
-constant PARITY_EO  : std_logic := '0';
-
--- UART registers and pins
-signal reset_n : std_logic := '1';
-signal tx_en : std_logic := '0';
-signal tx_en_next : std_logic := '0';
-signal tx_data : std_logic_vector(7 downto 0) := (others => '0');
-signal tx_data_next : std_logic_vector(7 downto 0) := (others => '0');
-signal tx_busy : std_logic;
-signal rx_done : std_logic;
-signal rx_data : std_logic_vector(7 downto 0);
-signal rx_err : std_logic;
 
 -- Analog sensor registers
 signal pin_sel : std_logic := '0';
@@ -150,7 +137,122 @@ signal last_brightness : std_logic_vector(11 downto 0);     -- holds the last br
 
 -- Sensor values for visualization
 signal temp_celsius : std_logic_vector(5 downto 0);
+signal ascii_temp_tens : std_logic_vector(7 downto 0);
+signal ascii_temp_ones : std_logic_vector(7 downto 0);
+signal ascii_temp_tenths : std_logic_vector(7 downto 0);
 signal brightness : std_logic_vector(5 downto 0);
+signal ascii_bright_tens : std_logic_vector(7 downto 0);
+signal ascii_bright_ones : std_logic_vector(7 downto 0);
+
+-- PWM output and duty cycle register
+signal dcval_reg : unsigned(5 downto 0):= (others => '0');
+signal dcval_next : unsigned(5 downto 0);
+
+-- UART configuration
+constant CLK_RATE   : integer   := 100_000_000;
+constant BAUD_RATE  : integer   := 38_400;
+constant OS_RATE    : integer   := 16;
+constant D_WIDTH    : integer   := 8;
+constant STOP_BITS  : integer   := 1;
+constant PARITY     : integer   := 1;
+constant PARITY_EO  : std_logic := '0';
+
+-- UART registers and pins
+signal reset_n : std_logic := '1';
+signal tx_en : std_logic := '0';
+signal tx_data : std_logic_vector(7 downto 0) := (others => '0');
+signal tx_internal : std_logic;
+signal tx_busy : std_logic;
+signal rx_done : std_logic;
+signal rx_data : std_logic_vector(7 downto 0);
+signal rx_err : std_logic;
+
+--The type definition for the UART state machine type. Here is a description of what
+--occurs during each state:
+-- RST_REG     -- Do Nothing. This state is entered after configuration or a user reset.
+--                The state is set to LD_TEMP_STR.
+-- LD_TEMP_STR -- The Temperature String is loaded into the sendStr variable and the strIndex
+--                variable is set to zero. The temp string length is stored in the StrEnd
+--                variable. The state is set to SEND_CHAR.
+-- SEND_CHAR   -- uartSend is set high for a single clock cycle, signaling the character
+--                data at sendStr(strIndex) to be registered by the UART_TX_CTRL at the next
+--                cycle. Also, strIndex is incremented (behaves as if it were post 
+--                incremented after reading the sendStr data). The state is set to RDY_LOW.
+-- RDY_LOW     -- Do nothing. Wait for the READY signal from the UART_TX_CTRL to go high, 
+--                indicating a send operation has begun. State is set to WAIT_RDY.
+-- WAIT_RDY    -- Do nothing. Wait for the READY signal from the UART_TX_CTRL to go low, 
+--                indicating a send operation has finished. If READY is low and strEnd /=
+--                StrIndex then state is set to SEND_CHAR.
+type UART_STATE_TYPE is (RST_REG, LD_TEMP_STR, SEND_CHAR, RDY_LOW, WAIT_RDY);
+
+--Current uart state signal
+signal uartState : UART_STATE_TYPE := RST_REG;
+
+--The CHAR_ARRAY type is a variable length array of 8 bit std_logic_vectors. 
+--Each std_logic_vector contains an ASCII value and represents a character in
+--a string. The character at index 0 is meant to represent the first
+--character of the string, the character at index 1 is meant to represent the
+--second character of the string, and so on.
+type CHAR_ARRAY is array (integer range<>) of std_logic_vector(7 downto 0);
+
+constant TMR_CNTR_MAX : std_logic_vector(26 downto 0) := "101111101011110000100000000"; --100,000,000 = clk cycles per second
+constant TMR_VAL_MAX : std_logic_vector(3 downto 0) := "1001"; --9
+
+constant RESET_CNTR_MAX : unsigned(17 downto 0) := "110000110101000000"; -- 100,000,000 * 0.002 = 200,000 = clk cycles per 2 ms
+constant LOG_CNTR_MAX : unsigned(29 downto 0) := "111110000011111000001111100000";
+
+constant TEMP_STR_LEN : natural := 15;
+constant LUX_STR_LEN : natural := 14;
+constant SEND_STR_LEN : natural := TEMP_STR_LEN + LUX_STR_LEN + 6;
+    
+-- temperature string definition, the values stored at each index are the ASCII values of the indicated character
+constant TEMP_STR : CHAR_ARRAY(0 to TEMP_STR_LEN-1) :=  (X"0A", --\n
+                                                        X"0D",  --\r
+                                                        X"54",  --T
+                                                        X"65",  --e
+                                                        X"6D",  --m
+                                                        X"70",  --p
+                                                        X"65",  --e
+                                                        X"72",  --r
+                                                        X"61",  --a
+                                                        X"74",  --t
+                                                        X"75",  --u
+                                                        X"72",  --r
+                                                        X"65",  --e
+                                                        X"3A",  --:
+                                                        X"20"); --
+                                                          
+constant LUX_STR : CHAR_ARRAY(0 to LUX_STR_LEN-1) :=    (X"2C", --,
+                                                        X"20",  --
+                                                        X"42",  --B
+                                                        X"72",  --r
+                                                        X"69",  --i
+                                                        X"67",  --g
+                                                        X"68",  --h
+                                                        X"74",  --t
+                                                        X"6E",  --n
+                                                        X"65",  --e
+                                                        X"73",  --s
+                                                        X"73",  --s
+                                                        X"3A",  --:
+                                                        X"20"); --
+
+--Contains the current string being sent over uart.
+signal sendStr : CHAR_ARRAY(0 to (SEND_STR_LEN - 1));
+
+--Contains the length of the current string being sent over uart.
+signal strEnd : natural;
+
+--Contains the index of the next character to be sent over uart
+--within the sendStr variable.
+signal strIndex : natural;
+
+--this counter counts the amount of time to pass between log messages
+signal log_cntr : unsigned(29 downto 0) := (others=>'0');
+
+--this counter counts the amount of time paused in the UART reset state
+signal reset_cntr : unsigned(17 downto 0) := (others=>'0');
+
 
 begin
 
@@ -183,7 +285,7 @@ port map(
     tx_en    => tx_en,
     tx_data  => tx_data,
     rx		 => rx,
-    tx       => tx,
+    tx       => tx_internal,
     tx_busy  => tx_busy,
     rx_done  => rx_done,
     rx_error => rx_err,
@@ -197,6 +299,7 @@ port map(
     pwm => pwm_out
 );
 
+-- shows brightness
 disp1 : sseg_arty_2dig
 port map(
     clk100 => CLK100MHZ,
@@ -205,6 +308,7 @@ port map(
     cat => cat1
 );
 
+-- shows temperature
 disp2 : sseg_arty_2dig
 port map(
     clk100 => CLK100MHZ,
@@ -218,21 +322,27 @@ port map(
     adc_tempval => last_temperature,
     temp_celsius => temp_celsius,
     temp_tenths_celsius => open,
-    temp_tenths => open,
-    temp_ones => open,
-    temp_tens => open,
-    temp_hundreds => open
+    ascii_temp_tenths => ascii_temp_tenths,
+    ascii_temp_ones => ascii_temp_ones,
+    ascii_temp_tens => ascii_temp_tens,
+    ascii_temp_hundreds => open
 );
 
-brightness <= last_brightness(11 downto 6); -- easy conversion
-dcval_next <= unsigned(brightness);         -- TODO: just for testing purposes, put temperature representation here later!
+light_conv : light_conversion
+port map(
+    adc_lightval => last_brightness,
+    brightness => brightness,
+    ascii_light_ones => ascii_bright_ones,
+    ascii_light_tens => ascii_bright_tens
+);
+
+
+dcval_next <= unsigned(not(brightness));         -- TODO: just for testing purposes, put temperature representation here later!
 
 upd_proc : process(CLK100MHZ)   -- update working registers
 begin
     if rising_edge(CLK100MHZ) then
         pin_sel <= pin_sel_next;
-        tx_en <= tx_en_next;
-        tx_data <= tx_data_next;
         dcval_reg <= dcval_next;
     end if;
 end process upd_proc;
@@ -263,5 +373,76 @@ begin
         end if;
     end if;
 end process upd_pin;
+
+--This counter holds the UART state machine in reset for ~2 milliseconds. This
+--will complete transmission of any byte that may have been initiated during 
+--FPGA configuration due to the UART_TX line being pulled low, preventing a 
+--frame shift error from occuring during the first message.
+process(CLK100MHZ)
+begin
+    if (rising_edge(CLK100MHZ)) then
+        if ((reset_cntr = RESET_CNTR_MAX) or (uartState /= RST_REG)) then
+            reset_cntr <= (others=>'0');
+        else
+            reset_cntr <= reset_cntr + 1;
+        end if;
+    end if;
+end process;
+
+--count time between log messages
+process(CLK100MHZ)
+begin
+    if (rising_edge(CLK100MHZ)) then
+        if ((log_cntr = LOG_CNTR_MAX))then
+            log_cntr <= (others=>'0');
+        else
+            log_cntr <= log_cntr + 1;
+        end if;
+    end if;
+end process;
+
+--Next Uart state logic (states described above)
+next_uartState_process : process (CLK100MHZ)
+begin
+	if (rising_edge(CLK100MHZ)) then
+			
+        case uartState is 
+        when RST_REG =>
+            if (reset_cntr = RESET_CNTR_MAX) then
+                tx_en <= '0';
+                uartState <= LD_TEMP_STR;
+            end if;
+        when LD_TEMP_STR =>
+            if (log_cntr = LOG_CNTR_MAX) then
+                strIndex <= 0;
+                tx_en <= '0';
+                sendStr <= TEMP_STR & ascii_temp_tens & ascii_temp_ones & X"2E" & ascii_temp_tenths & LUX_STR & ascii_bright_tens & ascii_bright_ones;
+                strEnd <= SEND_STR_LEN;
+                uartState <= SEND_CHAR;
+            end if;
+        when SEND_CHAR =>
+            strIndex <= strIndex + 1;
+            tx_en <= '1';
+            tx_data <= sendStr(strIndex);
+            uartState <= RDY_LOW;
+        when RDY_LOW =>
+            tx_en <= '0';
+            uartState <= WAIT_RDY;
+        when WAIT_RDY =>
+            tx_en <= '0';
+            if (tx_busy = '0') then
+                if (strEnd = strIndex) then
+                    uartState <= LD_TEMP_STR;
+                else
+                    uartState <= SEND_CHAR;
+                end if;
+            end if;
+        when others=> --should never be reached
+            uartState <= RST_REG;
+        end case;
+	end if;
+end process;
+
+tx <= tx_internal;
 
 end Behavioral;

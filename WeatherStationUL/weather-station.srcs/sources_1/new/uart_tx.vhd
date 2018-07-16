@@ -103,6 +103,7 @@ begin
                     end if;
                     
                 when parity =>
+                    tx_count    := 0;
                     tx          <= tx_parity(d_width);  -- add parity from last position of register
                     tx_state    <= stop;
                     

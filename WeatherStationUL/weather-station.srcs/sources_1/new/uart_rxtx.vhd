@@ -21,15 +21,7 @@
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
 use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
 
 entity uart_rxtx is
     generic(
@@ -57,9 +49,9 @@ architecture Behavioral of uart_rxtx is
 
 component baudrate_gen is
     generic(
-        clk_freq    : integer := clk_freq;      -- frequency of system clock in Hertz
-        baud_rate   : integer := baud_rate;     -- data link baud rate in bits/second
-        os_rate     : integer := os_rate);      -- oversampling rate to find center of receive bits (in samples per baud period)
+        clk_freq    : integer := 100_000_000;   -- frequency of system clock in Hertz
+        baud_rate   : integer := 9_600;         -- data link baud rate in bits/second
+        os_rate     : integer := 16);           -- oversampling rate to find center of receive bits (in samples per baud period)
     port(
         clk         : in std_logic;     -- system clock
         reset_n     : in std_logic;     -- asynchronous reset
@@ -69,10 +61,10 @@ end component;
 
 component uart_tx is
     generic(
-        d_width     : integer     := d_width;       -- data bus width
-        stop_bits   : integer     := stop_bits;     -- number of stop bits
-        use_parity  : integer     := use_parity;    -- 0 for no parity, 1 for parity
-        parity_eo   : std_logic   := parity_eo);    -- '0' for even, '1' for odd parity
+        d_width		: integer   := 8;    -- data bus width
+        stop_bits   : integer   := 1;    -- number of stop bits
+        use_parity  : integer   := 0;    -- 0 for no parity, 1 for parity
+        parity_eo   : std_logic := '0'); -- '0' for even, '1' for odd parity
     port(
         clk     : in std_logic;                             -- system clock
         clk_en  : in std_logic;                             -- clock enable indicating baud pulses
@@ -85,11 +77,11 @@ end component;
 
 component uart_rx is
     generic(
-        d_width     : integer     := d_width;       -- data bus width
-        stop_bits   : integer     := stop_bits;     -- number of stop bits
-        use_parity  : integer     := use_parity;    -- 0 for no parity, 1 for parity
-        parity_eo   : std_logic   := parity_eo;     -- '0' for even, '1' for odd parity
-        os_rate     : integer     := os_rate);      -- oversampling rate (in samples per baud period)
+        d_width		: integer     := 8;    -- data bus width
+        stop_bits   : integer     := 1;    -- number of stop bits
+        use_parity  : integer     := 0;    -- 0 for no parity, 1 for parity
+        parity_eo   : std_logic   := '0';  -- '0' for even, '1' for odd parity
+        os_rate     : integer     := 16);  -- oversampling rate (in samples per baud period)
     port(
         clk         : in std_logic;                                 -- system clock
         clk_en      : in std_logic;                                 -- clock enable indicating oversampling pulses
